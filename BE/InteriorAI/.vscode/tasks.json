@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "sqlproj: Build DESKTOP-5FQU0BI",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"d:/MyProject/RevRom/InteriorAI/DESKTOP-5FQU0BI/DESKTOP-5FQU0BI.sqlproj"
+			],
+			"problemMatcher": "$sqlproj-problem-matcher",
+			"isBackground": true,
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"detail": "Builds the DESKTOP-5FQU0BI SQL project"
+		}
+	]
+}

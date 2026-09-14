@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Revroom" parent="Theme.Material3.Light.NoActionBar" />
+
+    <style name="Theme.Revroom.Legacy" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <!-- Customize your legacy theme here -->
+        <item name="colorPrimary">#75675B</item>
+        <item name="colorSecondary">#8C8276</item>
+    </style>
+</resources>

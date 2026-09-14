@@ -1,0 +1,75 @@
+@InteriorAI_HostAddress = http://localhost:5207
+@UserId = 00000000-0000-0000-0000-000000000001
+@DesignId = replace-with-design-id
+
+GET {{InteriorAI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+POST {{InteriorAI_HostAddress}}/api/auth/register-device
+Content-Type: application/json
+
+{
+  "userId": "{{UserId}}",
+  "name": "Design Studio Tester"
+}
+
+###
+
+# Expected: 400 missing user-id header.
+POST {{InteriorAI_HostAddress}}/api/design/analyze
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="style"
+
+Modern
+--boundary--
+
+###
+
+# Expected: 400 missing image.
+POST {{InteriorAI_HostAddress}}/api/design/analyze
+user-id: {{UserId}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="style"
+
+Modern
+--boundary--
+
+###
+
+# Expected: 200 with { designId, originalImageUrl, status }.
+# Replace image path before running from an HTTP client that supports file variables.
+POST {{InteriorAI_HostAddress}}/api/design/analyze
+user-id: {{UserId}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="style"
+
+Modern
+--boundary
+Content-Disposition: form-data; name="image"; filename="room.jpg"
+Content-Type: image/jpeg
+
+< ./sample-room.jpg
+--boundary--
+
+###
+
+# Expected: 200 with { designId, status, originalImageUrl, designedImageUrl, errorMessage }.
+GET {{InteriorAI_HostAddress}}/api/design/status/{{DesignId}}
+user-id: {{UserId}}
+Accept: application/json
+
+###
+
+# Expected: 400 missing user-id header.
+GET {{InteriorAI_HostAddress}}/api/design/status/{{DesignId}}
+Accept: application/json
+
+###

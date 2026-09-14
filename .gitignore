@@ -1,0 +1,30 @@
+# IDE and local tooling
+.idea/
+.vs/
+*.iml
+.DS_Store
+.android-audit/
+.gradle-audit/
+
+# Build output
+**/bin/
+**/obj/
+**/build/
+**/.gradle/
+**/.kotlin/
+**/.cxx/
+**/.externalNativeBuild/
+**/.codegraph/
+
+# Machine-specific configuration and credentials
+**/local.properties
+**/.env
+**/.env.*
+**/*.keystore
+**/*.jks
+**/key.properties
+/BE/InteriorAI/appsettings.json
+/BE/InteriorAI/appsettings.Development.json
+
+# Runtime-generated files
+/BE/InteriorAI/wwwroot/uploads/
