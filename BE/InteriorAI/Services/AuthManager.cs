@@ -19,15 +19,36 @@ namespace InteriorAI.Services
 
             if (user == null)
             {
+                var userIdPrefix = userId.Length <= 4 ? userId : userId[..4];
                 user = new User
                 {
                     Id = userId,
-                    Name = defaultName ?? $"Khách_{userId.Substring(0, 4)}",
+                    Name = defaultName ?? $"Khách_{userIdPrefix}",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
                 _context.Users.Add(user);
-                await _context.SaveChangesAsync();
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException)
+                {
+                    // The app registers a device during startup and Profile can also
+                    // register after a 404. If those requests arrive together, use
+                    // the user created by the other request instead of returning 500.
+                    _context.ChangeTracker.Clear();
+                    var existingUser = await _context.Users
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(u => u.Id == userId);
+
+                    if (existingUser == null)
+                    {
+                        throw;
+                    }
+
+                    return existingUser;
+                }
             }
             return user;
         }

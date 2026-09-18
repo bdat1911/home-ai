@@ -23,8 +23,10 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,7 +54,10 @@ fun StyleScreen(
     selectedTab: StudioTab,
     selectedStyle: String?,
     styles: List<DesignViewModel.SelectionItem>,
+    isStylesLoading: Boolean,
+    stylesLoadError: String?,
     onStyleSelected: (String) -> Unit,
+    onRetryLoadStyles: () -> Unit,
     onCreateDesign: () -> Unit,
     onBack: () -> Unit,
     onInterior: () -> Unit,
@@ -62,6 +67,12 @@ fun StyleScreen(
     totalSteps: Int = 4,
     showBottomBar: Boolean = true
 ) {
+    LaunchedEffect(Unit) {
+        if (styles.isEmpty()) {
+            onRetryLoadStyles()
+        }
+    }
+
     StudioScaffold(
         selectedTab = selectedTab,
         modifier = Modifier
@@ -114,20 +125,73 @@ fun StyleScreen(
                 fontWeight = FontWeight.Medium
             )
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+            Box(
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxWidth()
                     .padding(top = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                contentAlignment = Alignment.Center
             ) {
-                items(styles, key = { it.id }) { style ->
-                    StyleSelectionItem(
-                        item = style,
-                        selected = selectedStyle == style.id,
-                        onClick = { onStyleSelected(style.id) }
-                    )
+                when {
+                    isStylesLoading -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(color = StudioGradientColor)
+                            Text("Loading styles…", color = StudioMuted, fontSize = 14.sp)
+                        }
+                    }
+
+                    !stylesLoadError.isNullOrBlank() -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Unable to load design styles",
+                                color = StudioText,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = stylesLoadError,
+                                color = StudioMuted,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            BackOutlineButton(
+                                text = "Retry",
+                                modifier = Modifier.fillMaxWidth(0.45f),
+                                onClick = onRetryLoadStyles
+                            )
+                        }
+                    }
+
+                    styles.isEmpty() -> {
+                        Text(
+                            text = "No design styles are available right now.",
+                            color = StudioMuted,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    else -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            items(styles, key = { it.id }) { style ->
+                                StyleSelectionItem(
+                                    item = style,
+                                    selected = selectedStyle == style.id,
+                                    onClick = { onStyleSelected(style.id) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

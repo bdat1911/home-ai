@@ -11,7 +11,6 @@ namespace InteriorAI.Models.DTOs
     public class UpdateProfileRequest
     {
         public string? Name { get; set; }
-        public string? AvatarUrl { get; set; }
     }
 
     public class UploadAvatarRequest
@@ -26,4 +25,12 @@ public class UserProfileResponse
     public string? Name { get; set; }
     public string? AvatarUrl { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class ProfileSummaryResponse
+{
+    public int ProjectCount { get; set; }
+    public int CompletedDesignCount { get; set; }
+    public int PendingDesignCount { get; set; }
 }

@@ -1,7 +1,9 @@
 ﻿using InteriorAI.Data;
+using InteriorAI.Domain.Entities;
 using InteriorAI.Models.DTOs;
 using InteriorAI.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.IO;
 
 namespace InteriorAI.Controllers
@@ -10,6 +12,8 @@ namespace InteriorAI.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
+        private const long MaxAvatarSizeBytes = 5 * 1024 * 1024;
+
        // 1. Khai báo 2 thằng cần dùng ở đây
         private readonly AppDbContext _context;
         private readonly AuthManager _authManager;
@@ -30,13 +34,7 @@ namespace InteriorAI.Controllers
 
             var user = await _authManager.RegisterOrGetUserAsync(request.UserId, request.Name);
 
-            return Ok(new UserProfileResponse
-            {
-                UserId = user.Id,
-                Name = user.Name,
-                AvatarUrl = user.AvatarUrl,
-                CreatedAt = user.CreatedAt
-            });
+            return Ok(ToProfileResponse(user));
         }
 
         // HÀM MỚI: HỨNG ẢNH TỪ ANDROID
@@ -50,6 +48,16 @@ namespace InteriorAI.Controllers
             if (file == null || file.Length == 0)
             {
                 return BadRequest("Không tìm thấy file ảnh!");
+            }
+
+            if (file.Length > MaxAvatarSizeBytes)
+            {
+                return BadRequest("Ảnh đại diện không được vượt quá 5 MB.");
+            }
+
+            if (!IsSupportedAvatarContentType(file.ContentType))
+            {
+                return BadRequest("Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP.");
             }
 
             // 2. Tìm thằng User đang cần đổi avatar trong Database
@@ -66,8 +74,8 @@ namespace InteriorAI.Controllers
                 Directory.CreateDirectory(uploadsFolder);
             }
 
-            // 4. Đổi tên file cho khỏi trùng (Thêm dải mã ngẫu nhiên Guid vào trước tên ảnh)
-            var uniqueFileName = Guid.NewGuid().ToString() + "_" + file.FileName;
+            // 4. Đặt tên file do server tạo để không tin trực tiếp tên file từ client.
+            var uniqueFileName = $"{Guid.NewGuid():N}{GetAvatarExtension(file.ContentType)}";
             var filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
             // 5. Lưu file ảnh vào ổ cứng máy tính
@@ -76,8 +84,8 @@ namespace InteriorAI.Controllers
                 await file.CopyToAsync(stream);
             }
 
-           // Chỉ lưu đường dẫn thư mục và tên file
-var relativePath = $"{uniqueFileName}";
+            // Chỉ lưu tên file; URL công khai được xây dựng ở một nơi trên client.
+            var relativePath = uniqueFileName;
 
             // 7. Lưu cái link đó vào Database của thằng User này
             user.AvatarUrl = relativePath;
@@ -85,8 +93,7 @@ var relativePath = $"{uniqueFileName}";
             
             await _context.SaveChangesAsync();
 
-            // Trả về thành công cho Android
-            return Ok(new { message = "Lưu ảnh thành công!", url = relativePath });
+            return Ok(ToProfileResponse(user));
         }
 
         // GET /api/auth/profile/{userId}
@@ -99,12 +106,30 @@ var relativePath = $"{uniqueFileName}";
             if (user == null)
                 return NotFound(new { message = "Không tìm thấy người dùng" });
 
-            return Ok(new UserProfileResponse
+            return Ok(ToProfileResponse(user));
+        }
+
+        // GET /api/auth/profile/{userId}/summary
+        [HttpGet("profile/{userId}/summary")]
+        public async Task<IActionResult> GetProfileSummary(string userId)
+        {
+            var userExists = await _context.Users
+                .AsNoTracking()
+                .AnyAsync(user => user.Id == userId);
+            if (!userExists)
             {
-                UserId = user.Id,
-                Name = user.Name,
-                AvatarUrl = user.AvatarUrl,
-                CreatedAt = user.CreatedAt
+                return NotFound(new { message = "Không tìm thấy người dùng" });
+            }
+
+            var activeProjects = _context.DesignResults
+                .AsNoTracking()
+                .Where(design => design.UserId == userId && !design.IsDeleted);
+
+            return Ok(new ProfileSummaryResponse
+            {
+                ProjectCount = await activeProjects.CountAsync(),
+                CompletedDesignCount = await activeProjects.CountAsync(design => design.Status == DesignStatuses.Completed),
+                PendingDesignCount = await activeProjects.CountAsync(design => design.Status == DesignStatuses.Pending)
             });
         }
 
@@ -112,19 +137,46 @@ var relativePath = $"{uniqueFileName}";
         [HttpPut("profile/{userId}")]
         public async Task<IActionResult> UpdateProfile(string userId, [FromBody] UpdateProfileRequest request)
         {
-            var user = await _authManager.UpdateUserProfileAsync(userId, request.Name, request.AvatarUrl);
+            var displayName = request.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(displayName) || displayName.Length > 50)
+            {
+                return BadRequest(new { message = "Tên hiển thị phải có từ 1 đến 50 ký tự." });
+            }
+
+            var user = await _authManager.UpdateUserProfileAsync(userId, displayName, avatarUrl: null);
 
             // Check nếu không tìm thấy user để cập nhật
             if (user == null)
                 return NotFound(new { message = "Không tìm thấy người dùng để cập nhật" });
 
-            return Ok(new UserProfileResponse
+            return Ok(ToProfileResponse(user));
+        }
+
+        private static UserProfileResponse ToProfileResponse(User user)
+        {
+            return new UserProfileResponse
             {
                 UserId = user.Id,
                 Name = user.Name,
                 AvatarUrl = user.AvatarUrl,
-                CreatedAt = user.CreatedAt
-            });
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
+            };
+        }
+
+        private static bool IsSupportedAvatarContentType(string? contentType)
+        {
+            return contentType?.ToLowerInvariant() is "image/jpeg" or "image/png" or "image/webp";
+        }
+
+        private static string GetAvatarExtension(string? contentType)
+        {
+            return contentType?.ToLowerInvariant() switch
+            {
+                "image/png" => ".png",
+                "image/webp" => ".webp",
+                _ => ".jpg"
+            };
         }
     }
 }

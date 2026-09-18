@@ -14,7 +14,6 @@ class LocalUserIdProvider(private val context: Context) {
         if (!existingUserId.isNullOrBlank() && !existingUserId.contains("-")) {
             return existingUserId
         }
-2
         // 2. Lấy Android ID
         val androidId = Settings.Secure.getString(
             context.contentResolver,

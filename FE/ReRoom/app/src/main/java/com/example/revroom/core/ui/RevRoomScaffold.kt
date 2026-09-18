@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Landscape
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,7 +48,8 @@ enum class StudioTab {
     Interior,
     Exterior,
     Chat,
-    Gallery
+    Gallery,
+    Profile
 }
 
 val StudioPurple = Color(0xFF934BFF)
@@ -65,6 +67,7 @@ fun StudioScaffold(
     onExterior: () -> Unit,
     onChat: () -> Unit,
     onGallery: () -> Unit,
+    onProfile: () -> Unit = {},
     horizontalPadding: Dp = 18.dp,
     showBottomBar: Boolean = true,
     content: @Composable () -> Unit
@@ -88,7 +91,8 @@ fun StudioScaffold(
                 onInterior = onInterior,
                 onExterior = onExterior,
                 onChat = onChat,
-                onGallery = onGallery
+                onGallery = onGallery,
+                onProfile = onProfile
             )
         }
     }
@@ -101,6 +105,7 @@ fun StudioBottomBar(
     onExterior: () -> Unit,
     onChat: () -> Unit,
     onGallery: () -> Unit,
+    onProfile: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -120,6 +125,7 @@ fun StudioBottomBar(
             BottomBarItem("Exterior", Icons.Outlined.Landscape, selectedTab == StudioTab.Exterior, onExterior, Modifier.weight(1f))
             BottomBarItem("Chat", Icons.Outlined.ChatBubbleOutline, selectedTab == StudioTab.Chat, onChat, Modifier.weight(1f))
             BottomBarItem("Gallery", Icons.Outlined.Image, selectedTab == StudioTab.Gallery, onGallery, Modifier.weight(1f))
+            BottomBarItem("Profile", Icons.Outlined.Person, selectedTab == StudioTab.Profile, onProfile, Modifier.weight(1f))
         }
     }
 }

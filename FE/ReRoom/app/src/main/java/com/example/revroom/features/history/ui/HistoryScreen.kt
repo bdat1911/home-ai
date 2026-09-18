@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Collections
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -48,7 +47,6 @@ fun HistoryScreen(
     onExterior: () -> Unit,
     onChat: () -> Unit,
     onGallery: () -> Unit,
-    onProfileClick: () -> Unit,
     showBottomBar: Boolean = true,
     viewModel: HistoryViewModel = viewModel(factory = HistoryViewModel.Factory(LocalContext.current))
 ) {
@@ -115,19 +113,7 @@ fun HistoryScreen(
                 .padding(top = 14.dp)
         ) {
             TopTitleBar(
-                title = "My projects",
-                trailing = {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(StudioGradient)
-                            .clickable { onProfileClick() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Outlined.Person, "Profile", tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                }
+                title = "My projects"
             )
 
             Spacer(modifier = Modifier.height(12.dp))

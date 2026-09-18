@@ -29,6 +29,12 @@ class DesignViewModel(
     private val _designStyles = MutableStateFlow<List<SelectionItem>>(emptyList())
     val designStyles: StateFlow<List<SelectionItem>> = _designStyles.asStateFlow()
 
+    private val _isStylesLoading = MutableStateFlow(false)
+    val isStylesLoading: StateFlow<Boolean> = _isStylesLoading.asStateFlow()
+
+    private val _stylesLoadError = MutableStateFlow<String?>(null)
+    val stylesLoadError: StateFlow<String?> = _stylesLoadError.asStateFlow()
+
     private var pollingJob: Job? = null
 
     data class DesignFeatureItem(
@@ -215,28 +221,40 @@ class DesignViewModel(
         _uiState.value = DesignUiState(designMode = _uiState.value.designMode)
     }
 
+    fun retryLoadDesignStyles() {
+        loadDesignStyles()
+    }
+
     private fun loadDesignStyles() {
+        if (_isStylesLoading.value) return
+
         viewModelScope.launch {
-            repository.getDesignStyles()
-                .onSuccess { styles ->
-                    _designStyles.value = styles.mapIndexed { index, style ->
-                        SelectionItem(
-                            id = style.styleId.toString(),
-                            label = style.styleName,
-                            colors = stylePalettes[index % stylePalettes.size],
-                            description = style.coreAesthetic,
-                            lighting = style.lighting,
-                            material = style.material,
-                            color = style.color,
-                            atmosphere = style.atmosphere
-                        )
+            _isStylesLoading.value = true
+            _stylesLoadError.value = null
+            try {
+                repository.getDesignStyles()
+                    .onSuccess { styles ->
+                        _designStyles.value = styles.mapIndexed { index, style ->
+                            SelectionItem(
+                                id = style.styleId.toString(),
+                                label = style.styleName,
+                                colors = stylePalettes[index % stylePalettes.size],
+                                description = style.coreAesthetic,
+                                lighting = style.lighting,
+                                material = style.material,
+                                color = style.color,
+                                atmosphere = style.atmosphere
+                            )
+                        }
                     }
-                }
-                .onFailure { error ->
-                    _uiState.value = _uiState.value.copy(
-                        errorMessage = error.message ?: "Unable to load design styles."
-                    )
-                }
+                    .onFailure { error ->
+                        _stylesLoadError.value = error.message ?: "Unable to load design styles."
+                    }
+            } catch (error: Exception) {
+                _stylesLoadError.value = error.message ?: "Unable to load design styles."
+            } finally {
+                _isStylesLoading.value = false
+            }
         }
     }
 

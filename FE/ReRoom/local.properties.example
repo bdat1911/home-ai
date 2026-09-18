@@ -1,0 +1,4 @@
+# Add this property to your ignored local.properties file.
+# For a real Android phone, use the private LAN IPv4 address of the PC running the API.
+# Do not use 127.0.0.1 or 0.0.0.0 here.
+homeAiApiUrl=http://YOUR_PC_LAN_IP:5207/

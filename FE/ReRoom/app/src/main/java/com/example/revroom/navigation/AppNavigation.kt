@@ -37,7 +37,7 @@ import com.example.revroom.core.ui.StudioBackground
 import com.example.revroom.core.ui.StudioBottomBar
 import com.example.revroom.core.ui.StudioTab
 import com.example.revroom.data.local.UserManager
-import com.example.revroom.features.auth.ui.SettingsScreen
+import com.example.revroom.features.auth.ui.ProfileScreen
 import com.example.revroom.features.chat.ui.ChatScreen
 import com.example.revroom.features.design_studio.model.DesignMode
 import com.example.revroom.features.design_studio.model.designFlowProcessingStep
@@ -57,11 +57,14 @@ import com.example.revroom.features.history.ui.HistoryScreen
 @Composable
 fun AppNavigation() {
     val context = LocalContext.current
+    val userManager = remember(context) { UserManager(context) }
     val density = LocalDensity.current
     val factory = remember(context) { DesignViewModel.Factory(context) }
     val viewModel: DesignViewModel = viewModel(factory = factory)
     val uiState by viewModel.uiState.collectAsState()
     val designStyles by viewModel.designStyles.collectAsState()
+    val isStylesLoading by viewModel.isStylesLoading.collectAsState()
+    val stylesLoadError by viewModel.stylesLoadError.collectAsState()
     val navController = rememberNavController()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentMainTab = currentBackStackEntry?.destination?.route.toStudioTab()
@@ -112,6 +115,7 @@ fun AppNavigation() {
     fun goExterior() = go(Route.EXTERIOR_HOME)
     fun goChat() = go(Route.CHAT)
     fun goGallery() = go(Route.GALLERY)
+    fun goProfile() = go(Route.PROFILE)
 
     Box(
         modifier = Modifier
@@ -222,7 +226,10 @@ fun AppNavigation() {
                         selectedTab = if (isExterior) StudioTab.Exterior else StudioTab.Interior,
                         selectedStyle = uiState.selectedStyle,
                         styles = designStyles,
+                        isStylesLoading = isStylesLoading,
+                        stylesLoadError = stylesLoadError,
                         onStyleSelected = viewModel::selectStyle,
+                        onRetryLoadStyles = viewModel::retryLoadDesignStyles,
                         onCreateDesign = {
                             viewModel.createDesign()
                             navController.navigate(Route.PROCESSING_RESULT) {
@@ -293,13 +300,12 @@ fun AppNavigation() {
                         onExterior = ::goExterior,
                         onChat = ::goChat,
                         onGallery = ::goGallery,
-                        onProfileClick = { navController.navigate(Route.SETTINGS) },
                         showBottomBar = false
                     )
                 }
 
-                composable(Route.SETTINGS) {
-                    SettingsScreen(userManager = UserManager(LocalContext.current))
+                composable(Route.PROFILE) {
+                    ProfileScreen(userManager = userManager)
                 }
         }
 
@@ -309,6 +315,7 @@ fun AppNavigation() {
             onExterior = if (isBottomBarVisible) ::goExterior else disabledBottomBarAction,
             onChat = if (isBottomBarVisible) ::goChat else disabledBottomBarAction,
             onGallery = if (isBottomBarVisible) ::goGallery else disabledBottomBarAction,
+            onProfile = if (isBottomBarVisible) ::goProfile else disabledBottomBarAction,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -372,6 +379,7 @@ private fun String?.mainTabTransitionIndex(): Int? {
         Route.EXTERIOR_HOME -> 11
         Route.CHAT -> 12
         Route.GALLERY -> 13
+        Route.PROFILE -> 14
         else -> null
     }
 }
@@ -392,6 +400,7 @@ private fun String?.toStudioTab(): StudioTab? {
         Route.EXTERIOR_HOME -> StudioTab.Exterior
         Route.CHAT -> StudioTab.Chat
         Route.GALLERY -> StudioTab.Gallery
+        Route.PROFILE -> StudioTab.Profile
         else -> null
     }
 }
@@ -409,5 +418,5 @@ private object Route {
     const val PROCESSING_RESULT = "processing_result"
     const val CHAT = "chat"
     const val GALLERY = "gallery"
-    const val SETTINGS = "settings"
+    const val PROFILE = "profile"
 }

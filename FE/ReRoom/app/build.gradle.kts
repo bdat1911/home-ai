@@ -1,6 +1,25 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+// Local development URL priority: Gradle property -> environment variable -> local.properties.
+// local.properties is ignored by Git, so each developer can use their own PC LAN address.
+val configuredDebugApiUrl = providers.gradleProperty("homeAiApiUrl").orNull
+    ?: providers.environmentVariable("HOME_AI_API_URL").orNull
+    ?: localProperties.getProperty("homeAiApiUrl")
+    ?: "http://10.0.2.2:5207/"
+val debugApiUrl = configuredDebugApiUrl.trim().let { url ->
+    if (url.endsWith('/')) url else "$url/"
 }
 
 android {
@@ -15,16 +34,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:5207/\"")
+        manifestPlaceholders["usesCleartextTraffic"] = "false"
     }
 
     buildTypes {
         debug {
-
-                buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:5207/\"")
-                manifestPlaceholders["usesCleartextTraffic"] = "true"
-            //buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:5207/\"") //10.0.2.2
-            //manifestPlaceholders["usesCleartextTraffic"] = "true"
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiUrl\"")
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
             buildConfigField("String", "API_BASE_URL", "\"https://replace-with-production-api/\"")
