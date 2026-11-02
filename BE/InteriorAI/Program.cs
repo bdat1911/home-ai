@@ -1,5 +1,6 @@
 using InteriorAI.Data;
 using InteriorAI.Data.Seed;
+using InteriorAI.Extensions;
 using InteriorAI.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
@@ -11,6 +12,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<AuthManager>();
 builder.Services.AddScoped<DesignManager>();
+builder.Services.AddScoped<IDesignJobCreator>(provider => provider.GetRequiredService<DesignManager>());
+builder.Services.AddScoped<ChatConversationService>();
+builder.Services.AddScoped<ChatBriefService>();
+builder.Services.AddChatbot();
+builder.Services.AddSingleton<KnowledgeBaseService>();
 builder.Services.AddScoped<DesignStudioSeeder>();
 builder.Services.AddScoped<IDesignPromptService, DesignPromptService>();
 builder.Services.AddControllers();

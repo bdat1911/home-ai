@@ -7,23 +7,47 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.revroom.R
+import com.example.revroom.core.network.ApiClient
+import com.example.revroom.core.network.ServerEndpoint
 import com.example.revroom.data.repository.DesignRepository
+import com.example.revroom.data.repository.DesignRepositoryException
 import com.example.revroom.features.design_studio.model.DesignJobStatus
 import com.example.revroom.features.design_studio.model.DesignMode
 import com.example.revroom.features.design_studio.model.DesignPhase
 import com.example.revroom.features.design_studio.model.DesignRequest
+import com.example.revroom.features.design_studio.model.DesignResult
+import com.example.revroom.features.design_studio.model.DesignStyle
 import com.example.revroom.features.design_studio.model.DesignUiState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
-class DesignViewModel(
-    private val repository: DesignRepository,
+class DesignViewModel internal constructor(
+    private val uploadDesign: suspend (DesignRequest) -> Result<DesignResult>,
+    private val getDesignStatus: suspend (String) -> Result<DesignResult>,
+    private val getDesignStyles: suspend () -> Result<List<DesignStyle>>,
+    private val apiBaseUrl: () -> String,
+    endpointChanges: Flow<String>,
+    initialState: DesignUiState = DesignUiState(),
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(DesignUiState())
+    constructor(repository: DesignRepository) : this(
+        uploadDesign = repository::uploadDesign,
+        getDesignStatus = repository::getDesignStatus,
+        getDesignStyles = repository::getDesignStyles,
+        apiBaseUrl = { ApiClient.baseUrl },
+        endpointChanges = ServerEndpoint.baseUrl
+    )
+
+    private val _uiState = MutableStateFlow(initialState)
     val uiState: StateFlow<DesignUiState> = _uiState.asStateFlow()
 
     private val _designStyles = MutableStateFlow<List<SelectionItem>>(emptyList())
@@ -36,6 +60,9 @@ class DesignViewModel(
     val stylesLoadError: StateFlow<String?> = _stylesLoadError.asStateFlow()
 
     private var pollingJob: Job? = null
+    private var submissionJob: Job? = null
+    private var stylesJob: Job? = null
+    private var stylesRequestVersion = 0
 
     data class DesignFeatureItem(
         val id: String,
@@ -126,16 +153,26 @@ class DesignViewModel(
     )
 
     init {
-        loadDesignStyles()
+        viewModelScope.launch {
+            endpointChanges.collect {
+                _designStyles.value = emptyList()
+                if (!_uiState.value.submissionAttempted) {
+                    _uiState.value = _uiState.value.copy(selectedStyle = null)
+                }
+                loadDesignStyles(force = true)
+            }
+        }
     }
 
-    fun startDesign(mode: DesignMode, featureId: String) {
+    fun startDesign(mode: DesignMode, featureId: String): Boolean {
+        if (submissionJob?.isActive == true) return false
         pollingJob?.cancel()
         _uiState.value = DesignUiState(
             designMode = mode,
             selectedFeature = featureId,
             selectedRoomType = if (mode == DesignMode.Exterior) "exterior" else null
         )
+        return true
     }
 
     fun selectImage(uri: Uri?) {
@@ -160,6 +197,14 @@ class DesignViewModel(
 
     fun createDesign() {
         val currentState = _uiState.value
+        if (submissionJob?.isActive == true || pollingJob?.isActive == true) return
+        if (currentState.designId != null) {
+            retry()
+            return
+        }
+        // A lost POST response does not tell us whether the server created a job.
+        // Only an explicit new design flow may submit another generation.
+        if (currentState.submissionAttempted) return
         val imageUri = currentState.selectedImageUri
         val styleId = currentState.selectedStyle?.toIntOrNull()
         val isRemoveFurniture = currentState.selectedFeature == "remove_furniture"
@@ -181,10 +226,16 @@ class DesignViewModel(
         }
 
         pollingJob?.cancel()
-        _uiState.value = currentState.copy(phase = DesignPhase.Uploading, errorMessage = null)
+        val submittedApiBaseUrl = apiBaseUrl()
+        _uiState.value = currentState.copy(
+            phase = DesignPhase.Uploading,
+            errorMessage = null,
+            submissionAttempted = true,
+            submittedApiBaseUrl = submittedApiBaseUrl
+        )
 
-        viewModelScope.launch {
-            repository.uploadDesign(
+        submissionJob = viewModelScope.launch {
+            uploadDesign(
                 DesignRequest(
                     imageUri = imageUri,
                     styleId = if (isRemoveFurniture) null else styleId,
@@ -195,6 +246,7 @@ class DesignViewModel(
                 )
             )
                 .onSuccess { response ->
+                    currentCoroutineContext().ensureActive()
                     _uiState.value = _uiState.value.copy(
                         phase = DesignPhase.Processing,
                         designId = response.designId,
@@ -204,36 +256,55 @@ class DesignViewModel(
                     startPolling(response.designId)
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    currentCoroutineContext().ensureActive()
+                    if (error is DesignRepositoryException && error.isInputRejection) {
+                        _uiState.value = _uiState.value.copy(
+                            phase = DesignPhase.Failed,
+                            submissionAttempted = false,
+                            errorMessage = error.message ?: "Please check the selected image and options."
+                        )
+                        return@onFailure
+                    }
                     _uiState.value = _uiState.value.copy(
-                        phase = DesignPhase.Failed,
-                        errorMessage = error.message ?: "Unable to create the design."
+                        phase = DesignPhase.SubmissionUncertain,
+                        errorMessage = "We could not confirm the submission. It may already be processing. " +
+                            "Check Gallery on the original server before starting a new design."
                     )
                 }
         }
     }
 
     fun retry() {
-        createDesign()
+        val designId = _uiState.value.designId ?: return
+        if (submissionJob?.isActive == true || pollingJob?.isActive == true) return
+        startPolling(designId)
     }
 
-    fun reset() {
+    fun leaveDesignScreen() {
         pollingJob?.cancel()
-        _uiState.value = DesignUiState(designMode = _uiState.value.designMode)
+        if (_uiState.value.phase == DesignPhase.Processing) {
+            pauseStatusChecks("Status checks were paused when you left this screen. Continue checking or view the design in Gallery.")
+        }
     }
 
     fun retryLoadDesignStyles() {
         loadDesignStyles()
     }
 
-    private fun loadDesignStyles() {
-        if (_isStylesLoading.value) return
-
-        viewModelScope.launch {
-            _isStylesLoading.value = true
-            _stylesLoadError.value = null
+    private fun loadDesignStyles(force: Boolean = false) {
+        if (_isStylesLoading.value && !force) return
+        val requestVersion = ++stylesRequestVersion
+        val requestedApiBaseUrl = apiBaseUrl()
+        stylesJob?.cancel()
+        _isStylesLoading.value = true
+        _stylesLoadError.value = null
+        stylesJob = viewModelScope.launch {
             try {
-                repository.getDesignStyles()
-                    .onSuccess { styles ->
+                val result = getDesignStyles()
+                currentCoroutineContext().ensureActive()
+                if (requestVersion != stylesRequestVersion || requestedApiBaseUrl != apiBaseUrl()) return@launch
+                result.onSuccess { styles ->
                         _designStyles.value = styles.mapIndexed { index, style ->
                             SelectionItem(
                                 id = style.styleId.toString(),
@@ -248,29 +319,49 @@ class DesignViewModel(
                         }
                     }
                     .onFailure { error ->
+                        if (error is CancellationException) throw error
                         _stylesLoadError.value = error.message ?: "Unable to load design styles."
                     }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                _stylesLoadError.value = error.message ?: "Unable to load design styles."
+                if (requestVersion == stylesRequestVersion && requestedApiBaseUrl == apiBaseUrl()) {
+                    _stylesLoadError.value = error.message ?: "Unable to load design styles."
+                }
             } finally {
-                _isStylesLoading.value = false
+                if (requestVersion == stylesRequestVersion) _isStylesLoading.value = false
             }
         }
     }
 
     private fun startPolling(designId: String) {
-        pollingJob?.cancel()
+        if (pollingJob?.isActive == true) return
+        if (apiBaseUrl() != _uiState.value.submittedApiBaseUrl) {
+            pauseStatusChecks("The API address changed. Restore the original address to check this design, or open Gallery on that server.")
+            return
+        }
+        _uiState.value = _uiState.value.copy(phase = DesignPhase.Processing, errorMessage = null)
         pollingJob = viewModelScope.launch {
-            repeat(MAX_POLL_ATTEMPTS) {
-                delay(POLL_INTERVAL_MS)
-
-                val currentPhase = _uiState.value.phase
-                if (currentPhase == DesignPhase.Completed || currentPhase == DesignPhase.Failed) {
-                    return@launch
-                }
-
-                repository.getDesignStatus(designId)
-                    .onSuccess { status ->
+            val finished = withTimeoutOrNull(POLL_WINDOW_MS) {
+                repeat(MAX_POLL_ATTEMPTS) { attempt ->
+                    if (attempt > 0) delay(POLL_INTERVAL_MS)
+                    if (apiBaseUrl() != _uiState.value.submittedApiBaseUrl) {
+                        pauseStatusChecks("The API address changed. Restore the original address to check this design.")
+                        return@withTimeoutOrNull true
+                    }
+                    val result = getDesignStatus(designId)
+                    currentCoroutineContext().ensureActive()
+                    if (apiBaseUrl() != _uiState.value.submittedApiBaseUrl) {
+                        pauseStatusChecks("The API address changed. Restore the original address to check this design.")
+                        return@withTimeoutOrNull true
+                    }
+                    val error = result.exceptionOrNull()
+                    if (error != null) {
+                        if (error is CancellationException) throw error
+                        pauseStatusChecks("Unable to check the design status. The server may still be processing it. Continue checking or open Gallery.")
+                        return@withTimeoutOrNull true
+                    }
+                    val status = result.getOrThrow()
                         when (status.status) {
                             DesignJobStatus.Completed -> {
                                 _uiState.value = _uiState.value.copy(
@@ -279,7 +370,7 @@ class DesignViewModel(
                                     designedImageUrl = status.designedImageUrl,
                                     errorMessage = null
                                 )
-                                return@launch
+                                return@withTimeoutOrNull true
                             }
 
                             DesignJobStatus.Failed -> {
@@ -287,7 +378,7 @@ class DesignViewModel(
                                     phase = DesignPhase.Failed,
                                     errorMessage = status.errorMessage ?: "Design generation failed."
                                 )
-                                return@launch
+                                return@withTimeoutOrNull true
                             }
 
                             else -> {
@@ -297,25 +388,22 @@ class DesignViewModel(
                                 )
                             }
                         }
-                    }
-                    .onFailure { error ->
-                        _uiState.value = _uiState.value.copy(
-                            phase = DesignPhase.Failed,
-                            errorMessage = error.message ?: "Unable to check design status."
-                        )
-                        return@launch
-                    }
+                }
+                false
             }
-
-            _uiState.value = _uiState.value.copy(
-                phase = DesignPhase.Failed,
-                errorMessage = "The generation is taking too long. Please try again."
-            )
+            if (finished != true) {
+                pauseStatusChecks("This design is taking longer than expected. Continue checking the same design or return later through Gallery.")
+            }
         }
+    }
+
+    private fun pauseStatusChecks(message: String) {
+        _uiState.value = _uiState.value.copy(phase = DesignPhase.StatusUnavailable, errorMessage = message)
     }
 
     override fun onCleared() {
         pollingJob?.cancel()
+        submissionJob?.cancel()
         super.onCleared()
     }
 
@@ -331,5 +419,6 @@ class DesignViewModel(
     private companion object {
         const val POLL_INTERVAL_MS = 2_000L
         const val MAX_POLL_ATTEMPTS = 150
+        const val POLL_WINDOW_MS = 300_000L
     }
 }

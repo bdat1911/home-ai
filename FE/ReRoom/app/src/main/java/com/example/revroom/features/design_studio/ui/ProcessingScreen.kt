@@ -100,14 +100,14 @@ fun ProcessingResultScreen(
     if (showExitDialog) {
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
-            title = { Text("Cancel design?") },
-            text = { Text("Do you want to cancel this generation?") },
+            title = { Text("Leave this screen?") },
+            text = { Text("Leaving does not cancel a submitted design. It may continue processing on the server; check Gallery for its result.") },
             confirmButton = {
                 TextButton(onClick = {
                     showExitDialog = false
                     onBack()
                 }) {
-                    Text("Cancel")
+                    Text("Leave screen")
                 }
             },
             dismissButton = {
@@ -134,7 +134,9 @@ fun ProcessingResultScreen(
                 title = title,
                 modifier = Modifier.padding(top = 16.dp),
                 leading = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        if (isProcessing) showExitDialog = true else onBack()
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -166,8 +168,27 @@ fun ProcessingResultScreen(
                     )
 
                     DesignPhase.Failed -> FailedContent(
+                        title = "Unable to create design",
                         errorMessage = uiState.errorMessage,
-                        onRetry = onRetry,
+                        actionLabel = if (uiState.designId != null) "Check status" else "Back",
+                        onAction = if (uiState.designId != null) onRetry else onBack,
+                        onBack = onBack
+                    )
+
+                    DesignPhase.StatusUnavailable -> FailedContent(
+                        title = "Status check paused",
+                        errorMessage = uiState.errorMessage,
+                        actionLabel = "Continue checking",
+                        onAction = onRetry,
+                        backLabel = "Gallery",
+                        onBack = onGallery
+                    )
+
+                    DesignPhase.SubmissionUncertain -> FailedContent(
+                        title = "Submission not confirmed",
+                        errorMessage = uiState.errorMessage,
+                        actionLabel = "Open Gallery",
+                        onAction = onGallery,
                         onBack = onBack
                     )
                 }
@@ -197,7 +218,7 @@ private fun ProcessingContent(title: String) {
         )
 
         Text(
-            text = "Please wait while we redesign your space. This can take 1-3 minutes.",
+            text = "Please wait while we redesign your space. This can take several minutes.",
             modifier = Modifier.padding(top = 8.dp),
             color = StudioMuted,
             fontSize = 13.sp,
@@ -263,8 +284,11 @@ private fun CompletedContent(
 
 @Composable
 private fun FailedContent(
+    title: String,
     errorMessage: String?,
-    onRetry: () -> Unit,
+    actionLabel: String,
+    onAction: () -> Unit,
+    backLabel: String = "Back",
     onBack: () -> Unit
 ) {
     Column(
@@ -282,7 +306,7 @@ private fun FailedContent(
         )
 
         Text(
-            text = "Unable to create design",
+            text = title,
             modifier = Modifier.padding(top = 16.dp),
             color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.titleLarge,
@@ -308,13 +332,13 @@ private fun FailedContent(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text(text = "Back")
+                Text(text = backLabel)
             }
             GradientButton(
-                text = "Retry",
+                text = actionLabel,
                 icon = Icons.Outlined.Refresh,
                 modifier = Modifier.weight(1f),
-                onClick = onRetry
+                onClick = onAction
             )
         }
     }

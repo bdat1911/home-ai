@@ -124,6 +124,16 @@ fun ProfileScreen(
             TopTitleBar(title = "My Profile")
         }
 
+        if (BuildConfig.DEBUG) {
+            item {
+                ServerConnectionCard(
+                    enabled = !authViewModel.isSaving && !authViewModel.isLoading,
+                    canSave = { !authViewModel.isSaving && !authViewModel.isLoading },
+                    onSaved = { authViewModel.loadUserProfile(userId) },
+                )
+            }
+        }
+
         item {
             ProfileHero(
                 selectedAvatar = authViewModel.selectedImageUri,
@@ -154,11 +164,7 @@ fun ProfileScreen(
                     color = Color(0xFFB3261E),
                     actionLabel = "Retry",
                     onAction = {
-                        if (hasChanges) {
-                            authViewModel.saveProfile(context, userId, displayName)
-                        } else {
-                            authViewModel.loadUserProfile(userId)
-                        }
+                        authViewModel.loadUserProfile(userId)
                     },
                 )
             }

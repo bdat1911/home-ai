@@ -14,13 +14,17 @@ data class DesignUiState(
     val designId: String? = null,
     val originalImageUrl: String? = null,
     val designedImageUrl: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val submissionAttempted: Boolean = false,
+    val submittedApiBaseUrl: String? = null
 )
 
 enum class DesignPhase {
     Idle,
     Uploading,
     Processing,
+    StatusUnavailable,
+    SubmissionUncertain,
     Completed,
     Failed
 }

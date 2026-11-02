@@ -16,7 +16,10 @@
       "launchUrl": "swagger",
       "applicationUrl": "http://0.0.0.0:5207",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Chat__GeminiEnabled": "true",
+        "Gemini__Model": "gemini-3.1-flash-lite",
+        "Knowledge__IncludeDrafts": "true"
       }
     },
     "https": {
@@ -26,7 +29,10 @@
       "launchUrl": "swagger",
       "applicationUrl": "https://localhost:7049;http://0.0.0.0:5207",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Chat__GeminiEnabled": "true",
+        "Gemini__Model": "gemini-3.1-flash-lite",
+        "Knowledge__IncludeDrafts": "true"
       }
     },
     "IIS Express": {
@@ -34,7 +40,10 @@
       "launchBrowser": true,
       "launchUrl": "swagger",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Chat__GeminiEnabled": "true",
+        "Gemini__Model": "gemini-3.1-flash-lite",
+        "Knowledge__IncludeDrafts": "true"
       }
     }
   }

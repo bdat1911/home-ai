@@ -70,50 +70,6 @@ public class DesignController : ControllerBase
         }
     }
 
-    [HttpPost("chat")]
-    public async Task<IActionResult> ChatDesign([FromForm] ChatDesignRequest request)
-    {
-        var userId = GetUserId();
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return BadRequest(new { message = "Missing required user-id header." });
-        }
-
-        try
-        {
-            var design = await _designManager.CreateChatDesignAsync(
-                userId,
-                request.Image,
-                request.Prompt,
-                request.Model,
-                request.Resolution);
-
-            return Ok(new DesignResponse
-            {
-                DesignId = design.Id,
-                OriginalImageUrl = design.OriginalImageUrl,
-                Status = design.Status
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidDataException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create chat design job for user {UserId}.", userId);
-            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Error creating chat design job." });
-        }
-    }
-
     [HttpGet("status/{designId}")]
     public async Task<IActionResult> GetStatus(string designId)
     {

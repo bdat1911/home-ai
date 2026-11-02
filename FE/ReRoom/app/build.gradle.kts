@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -22,6 +23,11 @@ val debugApiUrl = configuredDebugApiUrl.trim().let { url ->
     if (url.endsWith('/')) url else "$url/"
 }
 
+val releaseApiUrl = (providers.gradleProperty("homeAiReleaseApiUrl").orNull
+    ?: providers.environmentVariable("HOME_AI_RELEASE_API_URL").orNull
+    ?: localProperties.getProperty("homeAiReleaseApiUrl"))
+    ?.trim()?.takeIf { it.isNotEmpty() }?.let { if (it.endsWith('/')) it else "$it/" }
+
 android {
     namespace = "com.example.revroom"
     compileSdk = 35
@@ -43,7 +49,7 @@ android {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
-            buildConfigField("String", "API_BASE_URL", "\"https://replace-with-production-api/\"")
+            buildConfigField("String", "API_BASE_URL", "\"${releaseApiUrl ?: "https://replace-with-production-api/"}\"")
             manifestPlaceholders["usesCleartextTraffic"] = "false"
             isMinifyEnabled = false
             proguardFiles(
@@ -60,6 +66,18 @@ android {
         compose = true
         buildConfig = true
         viewBinding = true
+    }
+}
+
+// Gradle sync and debug builds work locally; release must never silently ship a placeholder.
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        val url = releaseApiUrl?.let { runCatching { URI(it) }.getOrNull() }
+        require(url != null && url.scheme == "https" && !url.host.isNullOrBlank() &&
+            url.host != "replace-with-production-api" && url.rawUserInfo == null &&
+            url.rawQuery == null && url.rawFragment == null) {
+            "Set homeAiReleaseApiUrl (or HOME_AI_RELEASE_API_URL) to your deployed HTTPS API before building release."
+        }
     }
 }
 
@@ -103,6 +121,8 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.mockito:mockito-core:5.12.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     debugImplementation(libs.androidx.compose.ui.tooling)

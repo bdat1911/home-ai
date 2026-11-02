@@ -34,6 +34,14 @@ namespace InteriorAI.Domain.Entities
 
         public bool IsDeleted { get; set; }
 
+        [MaxLength(36)]
+        public string? ConversationId { get; set; }
+
+        public int? BriefVersion { get; set; }
+
+        [MaxLength(36)]
+        public string? ClientRequestId { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

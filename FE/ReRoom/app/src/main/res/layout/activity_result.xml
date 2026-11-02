@@ -11,7 +11,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/layoutAppBar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="wrap_content"
         android:background="#1E1E1E"
         android:elevation="4dp"
         app:layout_constraintTop_toTopOf="parent">
@@ -21,6 +21,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginStart="4dp"
+            android:layout_marginVertical="4dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"
             app:srcCompat="@drawable/ic_back_arrow"

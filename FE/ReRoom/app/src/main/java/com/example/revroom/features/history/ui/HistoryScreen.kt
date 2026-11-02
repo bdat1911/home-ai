@@ -8,7 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -17,7 +17,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -40,6 +45,8 @@ import coil.compose.AsyncImage
 import com.example.revroom.core.ui.*
 import com.example.revroom.features.history.model.ProjectModel
 import com.example.revroom.features.history.viewmodel.HistoryViewModel
+import com.example.revroom.features.history.viewmodel.HistoryUiState
+import java.util.Locale
 
 @Composable
 fun HistoryScreen(
@@ -63,10 +70,10 @@ fun HistoryScreen(
         }
     }
 
-    // Observe ViewModel states
-    val projects by viewModel.projects.observeAsState(initial = emptyList())
+    val uiState by viewModel.uiState.observeAsState(initial = HistoryUiState.Loading)
     val isLoading by viewModel.isLoading.observeAsState(initial = false)
-    val error by viewModel.error.observeAsState(initial = null)
+    val isDeleting by viewModel.isDeleting.observeAsState(initial = false)
+    val deleteError by viewModel.deleteError.observeAsState(initial = null)
     
     var projectToDelete by remember { mutableStateOf<ProjectModel?>(null) }
 
@@ -77,6 +84,7 @@ fun HistoryScreen(
             text = { Text("Are you sure you want to delete this project history?") },
             confirmButton = {
                 TextButton(
+                    enabled = !isDeleting,
                     onClick = {
                         projectToDelete?.designId?.let { viewModel.deleteProject(it) }
                         projectToDelete = null
@@ -93,7 +101,18 @@ fun HistoryScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
+    deleteError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearDeleteError,
+            title = { Text("Couldn't delete project") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::clearDeleteError) { Text("OK") }
+            }
+        )
+    }
+
+    LaunchedEffect(viewModel) {
         viewModel.refreshProjects()
     }
 
@@ -113,43 +132,92 @@ fun HistoryScreen(
                 .padding(top = 14.dp)
         ) {
             TopTitleBar(
-                title = "My projects"
+                title = "My projects",
+                trailing = {
+                    IconButton(onClick = viewModel::refreshProjects, enabled = !isLoading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh projects", tint = StudioText)
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (projects.isEmpty() && !isLoading) {
-                    EmptyStateView(error)
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(1),
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(top = 2.dp, bottom = 100.dp)
-                    ) {
-                        items(items = projects) { project ->
-                            ProjectItem(
-                                project = project,
-                                onDelete = { projectToDelete = project },
-                                onClick = {
-                                    val intent = Intent(context, ProjectDetailActivity::class.java).apply {
-                                        putExtra(ProjectDetailActivity.EXTRA_DESIGN_ID, project.designId)
-                                        putExtra(ProjectDetailActivity.EXTRA_ORIGINAL_IMAGE, project.originalImageUrl)
-                                        putExtra(ProjectDetailActivity.EXTRA_DESIGNED_IMAGE, project.designedImageUrl)
-                                        putExtra(ProjectDetailActivity.EXTRA_STATUS, project.status)
-                                        putExtra(ProjectDetailActivity.EXTRA_CREATED_AT, project.createdAt)
-                                    }
-                                    detailLauncher.launch(intent)
-                                }
+                when (val state = uiState) {
+                    HistoryUiState.Loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            color = StudioPurple
+                        )
+                    }
+                    HistoryUiState.Empty -> EmptyStateView()
+                    is HistoryUiState.Error -> GalleryErrorView(state.message, viewModel::retryProjects)
+                    is HistoryUiState.Content -> Column(modifier = Modifier.fillMaxSize()) {
+                        if (state.isRefreshing || isDeleting) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = StudioPurple)
+                            Text(
+                                text = if (isDeleting) "Deleting project..." else "Refreshing projects...",
+                                modifier = Modifier.padding(8.dp),
+                                color = StudioMuted,
+                                fontSize = 12.sp
                             )
                         }
+                        state.error?.let { message ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(message, modifier = Modifier.weight(1f), color = StudioText, fontSize = 12.sp)
+                                TextButton(onClick = viewModel::retryProjects, enabled = !isLoading) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(1),
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(top = 2.dp, bottom = 100.dp)
+                        ) {
+                            itemsIndexed(
+                                items = state.projects,
+                                key = { index, project ->
+                                    project.designId?.takeIf { it.isNotBlank() }?.let { "project:$it" }
+                                        ?: "missing:$index"
+                                }
+                            ) { _, project ->
+                                ProjectItem(
+                                    project = project,
+                                    deleteEnabled = !isDeleting && !project.designId.isNullOrBlank(),
+                                    onDelete = { projectToDelete = project },
+                                    onClick = {
+                                        val intent = Intent(context, ProjectDetailActivity::class.java).apply {
+                                            putExtra(ProjectDetailActivity.EXTRA_DESIGN_ID, project.designId)
+                                            putExtra(ProjectDetailActivity.EXTRA_ORIGINAL_IMAGE, project.originalImageUrl)
+                                            putExtra(ProjectDetailActivity.EXTRA_DESIGNED_IMAGE, project.designedImageUrl)
+                                            putExtra(ProjectDetailActivity.EXTRA_STATUS, project.status)
+                                            putExtra(ProjectDetailActivity.EXTRA_CREATED_AT, project.createdAt)
+                                        }
+                                        detailLauncher.launch(intent)
+                                    }
+                                )
+                            }
+                            if (state.hasMore || state.isLoadingMore) {
+                                item(key = "load-more") {
+                                    Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                        if (state.isLoadingMore) {
+                                            CircularProgressIndicator(modifier = Modifier.size(28.dp), color = StudioPurple)
+                                        } else {
+                                            TextButton(onClick = viewModel::loadMoreProjects, enabled = !isLoading) {
+                                                Text("Load more projects")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-
-                if (isLoading && projects.isEmpty()) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFFC62828))
                 }
             }
         }
@@ -157,7 +225,7 @@ fun HistoryScreen(
 }
 
 @Composable
-fun EmptyStateView(error: String?) {
+fun EmptyStateView() {
     Column(
         modifier = Modifier.fillMaxSize().padding(bottom = 80.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -165,7 +233,21 @@ fun EmptyStateView(error: String?) {
     ) {
         Icon(Icons.Outlined.Collections, null, tint = StudioMuted, modifier = Modifier.size(48.dp))
         Text("No projects yet", Modifier.padding(top = 14.dp), color = StudioText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text(error ?: "Your redesign projects will appear here", Modifier.padding(top = 7.dp), color = StudioMuted, fontSize = 12.sp)
+        Text("Your redesign projects will appear here", Modifier.padding(top = 7.dp), color = StudioMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun GalleryErrorView(message: String, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 80.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = StudioMuted, modifier = Modifier.size(48.dp))
+        Text("Couldn't load projects", Modifier.padding(top = 14.dp), color = StudioText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(message, Modifier.padding(top = 7.dp), color = StudioMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
+        TextButton(onClick = onRetry) { Text("Try again") }
     }
 }
 
@@ -173,14 +255,23 @@ fun EmptyStateView(error: String?) {
 fun ProjectItem(
     project: ProjectModel,
     onDelete: () -> Unit,
-    onClick: () -> Unit // Add onClick parameter
+    onClick: () -> Unit,
+    deleteEnabled: Boolean = true
 ) {
+    val status = project.status?.trim()?.lowercase(Locale.ROOT)
+    val (statusLabel, statusColor) = when (status) {
+        "completed" -> "Completed" to Color(0xFF2E7D32)
+        "failed" -> "Failed" to Color(0xFFC62828)
+        "pending", "queued", null, "" -> "Pending" to Color(0xFF9A6700)
+        "processing", "in_progress" -> "Processing" to Color(0xFF1565C0)
+        else -> "Unknown" to Color(0xFF616161)
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White)
-            .clickable { onClick() } // Call onClick when the item is clicked
+            .clickable { onClick() }
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -195,14 +286,33 @@ fun ProjectItem(
                 // Divider
                 Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(Color.White))
                 
-                // Generated Image
-                AsyncImage(
-                    model = project.designedImageUrl,
-                    contentDescription = "Generated",
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    contentScale = ContentScale.Crop,
-                    error = null // Or a placeholder
-                )
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight().background(Color(0xFFF1F3F5)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (project.designedImageUrl.isNullOrBlank()) {
+                        Text(
+                            text = when (status) {
+                                "failed" -> "Generation failed"
+                                "completed" -> "Preview unavailable"
+                                "pending", "queued", null, "" -> "Waiting to start"
+                                "processing", "in_progress" -> "Creating your design"
+                                else -> "Preview unavailable"
+                            },
+                            modifier = Modifier.padding(16.dp),
+                            color = StudioMuted,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        AsyncImage(
+                            model = project.designedImageUrl,
+                            contentDescription = "Generated design",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
             }
 
             // Delete Button
@@ -212,14 +322,14 @@ fun ProjectItem(
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
-                    .clickable { onDelete() }
+                    .clickable(enabled = deleteEnabled) { onDelete() }
                     .align(Alignment.TopStart),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete",
-                    tint = Color.White,
+                    tint = Color.White.copy(alpha = if (deleteEnabled) 1f else 0.4f),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -229,12 +339,12 @@ fun ProjectItem(
                 modifier = Modifier
                     .padding(8.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(if (project.status?.equals("completed", ignoreCase = true) == true) Color(0xFF2E7D32) else Color(0xFFC62828))
+                    .background(statusColor)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
                     .align(Alignment.TopEnd)
             ) {
                 Text(
-                    project.status ?: "Processing",
+                    statusLabel,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

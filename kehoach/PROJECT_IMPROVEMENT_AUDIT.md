@@ -1,6 +1,8 @@
 # Báo cáo rà soát và kế hoạch cải thiện Home AI
 
-**Ngày rà soát:** 14/09/2026  
+**Ngày rà soát ban đầu:** 14/09/2026
+
+**Cập nhật triển khai:** 18/09/2026 — cải thiện kết nối debug, Gallery, polling/retry, kiểm tra Chat và upload ảnh.
 **Phạm vi:** Android app `FE/ReRoom`, ASP.NET Core API `BE/InteriorAI`, database/seed, AI image pipeline, cấu hình, tài liệu và chatbot.  
 **Cách đọc:** Các mục “đã xác minh” được đối chiếu trực tiếp từ mã nguồn hiện tại. Các mục “đề xuất” là backlog phát triển, không nên mô tả như chức năng đã hoàn thành.
 
@@ -8,9 +10,9 @@
 
 Dự án đã có một luồng lõi có giá trị cho đồ án: người dùng chọn ảnh phòng, loại phòng/phong cách, gửi yêu cầu tạo ảnh AI, theo dõi trạng thái và xem lịch sử dự án. Front-end dùng Kotlin/Jetpack Compose; Back-end dùng ASP.NET Core, EF Core/SQL Server, ImgBB và NanoBanana.
 
-Tuy nhiên, dự án hiện phù hợp để demo nội bộ hơn là triển khai thật. Các rủi ro lớn nhất là xác thực người dùng chưa an toàn, khóa API nằm trong cấu hình local, job AI không bền vững khi API restart, cấu hình mạng điện thoại thật phụ thuộc `adb reverse`, và tab Chat chưa phải chatbot đa lượt/RAG.
+Tuy nhiên, dự án hiện phù hợp để demo nội bộ hơn là triển khai thật. Các rủi ro lớn nhất còn lại là xác thực người dùng chưa an toàn, quản lý secret, job AI không bền vững khi API restart, chưa có backend HTTPS cho release, và tab Chat chưa phải chatbot đa lượt/RAG.
 
-Các thay đổi Profile và Style đang có trong working tree đã cải thiện trải nghiệm lỗi mạng (Profile có retry; Style có loading/lỗi/retry) nhưng vẫn cần cài lại APK và kiểm thử trên điện thoại. Báo cáo này không coi các thay đổi chưa commit là đã bàn giao production.
+Các thay đổi Profile/Style trước đây đã có trong commit `034c8ad`. Đợt cải tiến tiếp theo thêm cấu hình URL ngay trong Profile của bản debug, kiểm tra health trước khi lưu, Gallery có Retry/Refresh/Load more, và Retry trạng thái không tự tạo job mới. Xem `DEVELOPMENT_GUIDE.md` để chạy và kiểm thử. Build/unit test không đồng nghĩa đã kiểm thử thành công mọi luồng trên điện thoại hoặc sẵn sàng production.
 
 ## 2. Quy ước ưu tiên
 
@@ -19,7 +21,7 @@ Các thay đổi Profile và Style đang có trong working tree đã cải thi�
 - **P2 — Nợ kỹ thuật quan trọng:** chưa chặn demo nhưng gây khó bảo trì, mở rộng và đánh giá đồ án.
 - **P3 — Hoàn thiện sau:** tối ưu, mở rộng sản phẩm và nâng chất lượng trình bày.
 
-## 3. Lỗi và rủi ro đã xác minh
+## 3. Lỗi, rủi ro và trạng thái khắc phục
 
 ### P0-01 — Chưa có xác thực thật; `user-id` có thể bị giả mạo
 
@@ -36,7 +38,7 @@ Các thay đổi Profile và Style đang có trong working tree đã cải thi�
 
 1. Thêm tài khoản và access token server-issued (JWT hoặc dịch vụ xác thực như Firebase/Auth0).
 2. Đọc user ID duy nhất từ claim token; bỏ tin cậy vào `user-id` do client tự gửi.
-3. Áp ownership check cho Design, Profile, Conversation, Attachment và Avatar.
+3. Gắn ownership với danh tính đã xác thực: Design đã so sánh/lọc theo user ID nhưng ID hiện do client tự khai. Profile/Avatar cũng cần kiểm tra tương tự. Conversation/Attachment là yêu cầu cho giai đoạn Chat khi các entity này được tạo.
 4. Viết test: user A không thể đọc/sửa/xóa dữ liệu của user B.
 
 ### P0-02 — Khóa AI/storage đang nằm plaintext trong cấu hình development
@@ -47,44 +49,39 @@ Các thay đổi Profile và Style đang có trong working tree đã cải thi�
 
 **Cần làm ngay:**
 
-1. Rotate/thu hồi toàn bộ khóa hiện tại; không ghi lại giá trị khóa vào tài liệu hoặc commit.
+1. Rà lịch sử chia sẻ/Git và quyền sử dụng khóa của dự án chung; thu hồi/thay khóa đã lộ, đã chia sẻ ngoài phạm vi kiểm soát hoặc không xác định được ai đang giữ. Việc có khóa trong cấu hình local không tự chứng minh đã xảy ra rò rỉ.
 2. Dùng .NET User Secrets cho máy dev; environment variables hoặc secret manager khi deploy.
 3. Thêm `appsettings.Example.json` không chứa giá trị nhạy cảm.
 4. Kiểm tra lịch sử Git trước khi push public bằng secret scanner.
 
-### P0-03 — Cấu hình Android chỉ chạy ổn qua USB debug; release chưa dùng được
+### P0-03 — Release cần backend HTTPS; kết nối debug đã cấu hình được trong app
 
 **Bằng chứng:**
 
-- `FE/ReRoom/app/build.gradle.kts` hard-code debug URL là `http://127.0.0.1:5207/`.
-- Trên điện thoại thật, `127.0.0.1` là điện thoại nên bắt buộc dùng `adb reverse tcp:5207 tcp:5207` sau mỗi lần kết nối lại.
-- Có `BASE_URL = 10.0.2.2` nhưng `ApiClient.kt` thực tế dùng `BuildConfig.API_BASE_URL`; tài liệu cũ còn hướng dẫn `10.0.2.2`.
-- URL release hiện là placeholder `https://replace-with-production-api/`.
-- `AndroidManifest.xml` hard-code `android:usesCleartextTraffic="true"`, nên cấu hình placeholder release không thể tắt HTTP như dự định.
+- Debug lấy URL mặc định từ Gradle property/environment/local.properties; `10.0.2.2` chỉ là mặc định cho emulator.
+- `My Profile → Server connection` cho nhập URL, Test connection và Test & save. Chỉ lưu sau khi health trả thành công; override được giữ sau khi đóng app.
+- Interceptor thay endpoint cho các Retrofit service hiện có; không cần build lại khi đổi IP. Style tự tải lại khi đổi endpoint; job của endpoint cũ không được kiểm tra trên endpoint mới.
+- `AndroidManifest.xml` dùng `${usesCleartextTraffic}`: debug bật HTTP, release tắt.
+- Release nhận `homeAiReleaseApiUrl`/`HOME_AI_RELEASE_API_URL`; tác vụ build release báo lỗi khi thiếu cấu hình HTTPS hợp lệ, thay vì tạo APK dùng placeholder.
 
-**Tác động:** Đây là nguyên nhân trực tiếp của lỗi `Failed to connect to /127.0.0.1:5207`; APK release hiện không thể kết nối một API thật và có nguy cơ gửi ảnh/User ID qua HTTP.
+**Giới hạn:** Cấu hình URL không tự nối hai mạng khác nhau. LAN vẫn cần cùng mạng cho phép thiết bị liên lạc; `127.0.0.1` trên điện thoại vẫn cần USB reverse. Muốn dùng qua nhiều Wi-Fi/4G cần backend có địa chỉ truy cập phù hợp. Health hiện chỉ xác minh API sống, chưa xác minh DB/provider.
 
 **Cần làm:**
 
-1. Tách flavor/config: `usbDebug`, `emulatorDebug`, `lanDebug`, `staging`, `production`.
-2. Đọc base URL từ Gradle property/local configuration không commit; production bắt buộc HTTPS.
-3. Dùng `${usesCleartextTraffic}` hoặc Network Security Config chỉ cho phép HTTP ở debug nội bộ.
-4. Hiện màn chẩn đoán kết nối ở bản debug: URL đang dùng, trạng thái API và hướng dẫn `adb reverse`.
+1. Giữ debug/release; chưa cần năm flavor chỉ để đổi địa chỉ API.
+2. Hoàn thiện xác thực/quota và triển khai backend HTTPS trước khi công khai.
+3. Cấu hình URL thật, signing và kiểm thử release trên thiết bị.
 
-### P0-04 — UI Chat cho gửi text-only nhưng Repository/API lại bắt buộc có ảnh
+### P1-Chat — Đã đồng bộ yêu cầu ảnh; chatbot tư vấn vẫn là phần chưa triển khai
 
 **Bằng chứng:**
 
-- `ChatViewModel.kt` cho gửi khi có text *hoặc* ảnh.
-- `DesignRepository.sendMessage()` ném lỗi nếu không có `imageUri`.
-- Back-end `ChatDesignRequest` cũng đánh dấu `Image` là bắt buộc.
+- Backend/Repository vẫn yêu cầu ảnh cho luồng tạo thiết kế bằng Chat.
+- UI/ViewModel hiện kiểm tra ảnh trước khi thêm message hoặc xóa bản nháp; text-only không bị gửi vào API tạo ảnh.
 
-**Tác động:** Người dùng nhìn thấy tin nhắn text đã xuất hiện trong màn Chat rồi nhận lỗi yêu cầu ảnh. Đây là mâu thuẫn chức năng rõ ràng và khiến tab Chat không thể được gọi là chatbot hội thoại.
+**Trạng thái:** Đã sửa mâu thuẫn đầu vào. Chưa có LLM text service hoặc hội thoại lưu database; không gọi chức năng hiện tại là chatbot RAG.
 
-**Cần làm:** Chọn một trong hai hướng và đồng bộ UI–API–tài liệu:
-
-- **Tạm thời:** bắt buộc ảnh, disable Send trước khi thêm message vào UI và giải thích rõ yêu cầu.
-- **Hướng đúng cho đồ án:** hỗ trợ text-only cho tư vấn; chỉ yêu cầu ảnh khi người dùng xác nhận tạo render.
+**Cần làm tiếp:** Nếu đề tài cam kết chatbot tư vấn, xây dựng API text-only riêng và lịch sử hội thoại; chỉ yêu cầu ảnh khi xác nhận tạo render.
 
 ### P1-01 — Job AI chạy bằng `Task.Run`, không bền vững khi API restart
 
@@ -142,44 +139,45 @@ Các thay đổi Profile và Style đang có trong working tree đã cải thi�
 
 **Cần làm:** Hoặc tạm ẩn Exterior ở demo, hoặc hoàn thiện mode Exterior với seed, prompt, validation và test riêng cho facade/landscaping.
 
-### P1-05 — Polling/retry có thể đánh dấu sai trạng thái và tạo dự án trùng
+### P1-05 — Đã sửa Retry trạng thái; còn thiếu phục hồi bền vững và idempotency phía server
 
 **Bằng chứng:**
 
-- Design polling và Chat polling có thời gian/logic khác nhau; Chat dừng khoảng 2 phút trong khi provider Back-end có thể chờ đến 5 phút.
-- Một lỗi mạng ở polling Design có thể chuyển job thành failed dù server vẫn xử lý.
-- `DesignViewModel.retry()` tạo request thiết kế mới thay vì resume job cũ.
-- UI có “Cancel design?” nhưng chưa gọi API hủy server.
+- Design/Chat có cửa sổ polling hữu hạn và hành động kiểm tra tiếp. Lỗi mạng được phân biệt với job Failed.
+- Có `designId` thì Retry đọc lại trạng thái cùng ID, không tự gọi POST tạo ảnh.
+- Nếu mất phản hồi khi gửi, trạng thái là chưa xác định; hướng người dùng kiểm tra Gallery trước khi tạo mới.
+- Nhãn rời màn hình không khẳng định đã hủy xử lý/credit phía server.
+- ID đang theo dõi vẫn nằm trong bộ nhớ; process death và restart backend chưa được giải quyết đầy đủ.
 
-**Cần làm:** Lưu `designId` local, resume status khi mở app, dùng exponential backoff và lỗi HTTP có kiểu; chỉ tạo job mới khi user xác nhận retry generation.
+**Cần làm tiếp:** Lưu job local theo endpoint/user, phục hồi sau process death, bổ sung idempotency phía API/provider và queue bền vững. Không hứa cancel chắc chắn ngừng chi phí khi provider không có cơ chế hủy.
 
-### P1-06 — Gallery chưa phân biệt trạng thái rỗng với lỗi; phân trang chưa hoàn chỉnh
+### P1-06 — Đã bổ sung trạng thái Gallery và phân trang
 
 **Bằng chứng:**
 
-- `HistoryScreen` hiển thị “No projects yet” kể cả khi API lỗi.
-- `HistoryViewModel` có `currentPage`/`hasMore()` nhưng UI chỉ tải trang đầu, không có pull-to-refresh, Retry hoặc load-more.
-- Badge UI tô đỏ cho mọi trạng thái khác `completed`, nên `pending/processing` dễ bị hiểu là failed.
+- Gallery phân biệt Loading, Empty, Error, Content; có Retry, nút Refresh và Load more.
+- Phân trang theo totalPages, loại bỏ ID trùng, giữ danh sách cũ nếu refresh cùng server bị lỗi; đổi server không trộn dữ liệu.
+- Badge Completed/Pending/Processing/Failed có nhãn riêng. Xóa làm tải lại trang đầu để tránh lệch offset.
 
-**Cần làm:** Tạo `HistoryUiState` rõ ràng: Loading, Empty, Error, Content; thêm Retry, pull-to-refresh, pagination theo `totalPages`, trạng thái Completed/Processing/Failed và giữ dữ liệu cũ khi refresh lỗi.
+**Cần kiểm thử:** Danh sách nhiều trang, mất mạng khi refresh/load-more, xóa khi đang tải và đổi endpoint. Pull-to-refresh bằng cử chỉ/search/filter chưa thuộc đợt này.
 
 ### P1-07 — Quản lý device identity/session bị phân tán
 
 **Bằng chứng:** `MainActivity`, `ProfileScreen/AuthViewModel`, `DesignRepository`, `UserManager` và `LocalUserIdProvider` đều có một phần logic nhận diện/đăng ký user. Hai class local còn trùng logic sinh/lưu `DEVICE_ID`.
 
-**Tác động:** Dễ race condition, che mất lỗi đăng ký và khó thay sang login/JWT. `MainActivity` còn tạo `AuthViewModel()` thủ công, không thuộc ViewModelStore.
+**Trạng thái một phần:** `MainActivity` đã dùng ViewModelProvider; Repository chỉ đăng ký khi profile trả 404 và gắn cache đăng ký với endpoint. Logic nhận diện vẫn cần gom lại khi triển khai authentication.
 
 **Cần làm:** Gom thành `SessionRepository` duy nhất, inject qua DI; trả lỗi typed (`Offline`, `Unauthorized`, `NotFound`, `ServerError`) thay vì mặc định coi mọi lỗi là user chưa tồn tại.
 
-### P1-08 — Pipeline nén/upload ảnh trên Android có nguy cơ OOM và sai MIME
+### P1-08 — Đã giới hạn pipeline ảnh và đồng bộ JPEG MIME
 
 **Bằng chứng:**
 
-- `ImageCompressor.readAndCompressIfNeeded()` đọc toàn bộ ảnh vào RAM trước khi kiểm tra kích thước.
-- Khi nén, byte đầu ra luôn JPEG nhưng `DesignRepository` vẫn gửi MIME type/extension của file gốc.
-- `FileUtils.uriToFile()` có thể tạo file rỗng nếu stream null và luôn dùng đuôi `.jpg`.
+- Stream được chép có giới hạn vào cache; kiểm kích thước ảnh trước khi decode, downsample và xử lý trên Dispatchers.IO.
+- Ảnh re-encode JPEG được gửi với MIME image/jpeg và đuôi .jpg nhất quán, bao gồm avatar.
+- URI không đọc được/ảnh quá lớn có lỗi rõ ràng; cache tạm được dọn trong finally; cancellation được truyền tiếp.
 
-**Cần làm:** Đọc stream theo luồng, decode bounds trước, giới hạn pixel; nếu re-encode JPEG thì gửi đồng bộ JPEG MIME/extension; fail rõ ràng khi không đọc được URI.
+**Cần kiểm thử trên thiết bị:** JPEG EXIF xoay/lật, PNG trong suốt, HEIC theo phiên bản Android, ảnh cực lớn và URI mất quyền đọc. Không coi unit test helper là đã xác nhận toàn bộ codec trên điện thoại.
 
 ### P2-01 — Profile summary không phản ánh đủ trạng thái thiết kế
 
@@ -310,12 +308,12 @@ Khi nền tảng chat đã ổn định, RAG nên đi theo thứ tự:
 
 ### Giai đoạn 0 — Ổn định demo cục bộ (2–4 ngày)
 
-- [ ] Rotate API keys, tạo file cấu hình mẫu và hướng dẫn local.
-- [ ] Hoàn thiện flavor USB/emulator/LAN, giữ API chạy và kiểm tra health trước demo.
-- [ ] Sửa dứt điểm Chat text-only/ảnh bắt buộc.
+- [ ] Rà phạm vi chia sẻ API keys và thay khóa nếu cần; tạo cấu hình backend mẫu không chứa secret.
+- [x] Cấu hình URL debug trong app, kiểm tra health và hướng dẫn kết nối; không cần năm flavor.
+- [x] Đồng bộ Chat tạo ảnh: yêu cầu ảnh trước khi gửi, giữ bản nháp khi thiếu ảnh.
 - [ ] Cài và kiểm thử bản Style/Profile mới trên điện thoại thật.
-- [ ] Thêm Retry/loading/error cho Gallery; sửa badge status.
-- [ ] Sửa luồng cancel để không nói là đã hủy khi server chưa hủy.
+- [x] Thêm Retry/loading/error/refresh/load-more cho Gallery; sửa badge status.
+- [x] Đổi luồng cancel thành rời màn hình, không nói là đã hủy ở server.
 
 **Tiêu chí hoàn thành:** demo trên điện thoại không có màn trắng/lỗi kỹ thuật mơ hồ; mỗi lỗi mạng có Retry; không cần sửa source mỗi lần đổi emulator/USB/LAN.
 
@@ -347,7 +345,7 @@ Khi nền tảng chat đã ổn định, RAG nên đi theo thứ tự:
 
 **Tiêu chí hoàn thành:** người dùng có thể tư vấn text, gửi ảnh khi cần, xác nhận brief, nhận render trong cùng conversation và mở lại app vẫn thấy lịch sử.
 
-### Giai đoạn 4 — RAG, chất lượng và bảo vệ đồ án (sau MVP)
+### Giai đoạn 4 — Hoàn thiện RAG, đánh giá và bảo vệ đồ án
 
 - [ ] Knowledge base, embedding, retrieval, citation và evaluation.
 - [ ] Unit/integration/UI test, GitHub Actions, Docker/Compose, demo script.
@@ -362,8 +360,10 @@ Khi nền tảng chat đã ổn định, RAG nên đi theo thứ tự:
 3. Chỉ giữ các feature Interior/Exterior thực sự có prompt/pipeline hoạt động.
 4. Hoàn thiện Gallery/Profile/error states để demo không gây hiểu nhầm.
 5. Làm Chat MVP có Design Brief và lưu hội thoại.
-6. Chỉ triển khai RAG khi các bước trên đã xong; nếu không, ghi RAG là hướng phát triển.
-7. Dành thời gian cuối cho test, CI, tài liệu chạy dự án và demo script.
+6. Nếu tên đề tài cam kết RAG như PROJECT_PROPOSAL_OUTLINE.md, đưa dữ liệu tri thức, truy hồi, citation và đánh giá vào phạm vi bắt buộc; chuẩn bị song song khi ổn định luồng tạo ảnh. Nếu không cam kết RAG, ghi rõ là hướng phát triển.
+7. Test, CI tối thiểu và tài liệu chạy dự án đi cùng từng giai đoạn. Cuối kỳ dành cho đánh giá tổng thể, slide và demo; không để mọi kiểm thử tới cuối.
+
+**Điều chỉnh phạm vi/tiến độ:** Các mốc ngày/tuần phía trên là ước lượng ban đầu, không phải cam kết. Tạm hoãn dashboard, variation phức tạp, admin và viết lại toàn bộ frontend khi thời gian hạn chế. Chưa cần tự động migrate mỗi startup nếu đã có bước migration rõ ràng trước seed. Bổ sung bộ ảnh và câu hỏi cố định để đo độ đúng phong cách/cấu trúc, thời gian, tỷ lệ thành công/chi phí; với RAG so sánh cùng mô hình có và không truy hồi.
 
 ## 7. Kết luận dùng cho báo cáo đồ án
 

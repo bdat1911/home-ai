@@ -8,8 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.revroom.BuildConfig
 import com.example.revroom.core.network.ApiClient
+import com.example.revroom.core.network.ServerEndpoint
 import com.example.revroom.core.utils.FileUtils
 import com.example.revroom.data.local.UserManager
 import com.example.revroom.data.remote.ProfileSummaryResponse
@@ -17,9 +17,9 @@ import com.example.revroom.data.remote.RegisterDeviceRequest
 import com.example.revroom.data.remote.UpdateProfileRequest
 import com.example.revroom.data.remote.UserProfileResponse
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -59,12 +59,16 @@ class AuthViewModel : ViewModel() {
     fun sendIdToServer(userManager: UserManager, userId: String) {
         viewModelScope.launch {
             try {
-                val response = ApiClient.authApi.registerDevice(RegisterDeviceRequest(userId))
+                val response = ServerEndpoint.withStableEndpoint {
+                    ApiClient.authApi.registerDevice(RegisterDeviceRequest(userId))
+                }
                 if (response.isSuccessful) {
                     userManager.isRegisteredOnServer = true
                 } else {
                     Log.e(TAG, "Device registration failed: HTTP ${response.code()}")
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 Log.e(TAG, "Device registration failed", error)
             }
@@ -72,6 +76,7 @@ class AuthViewModel : ViewModel() {
     }
 
     fun loadUserProfile(userId: String) {
+        if (isLoading || isSaving) return
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
@@ -87,6 +92,8 @@ class AuthViewModel : ViewModel() {
 
                 applyProfile(profile)
                 loadProfileSummary(userId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 Log.e(TAG, "Unable to load profile", error)
                 errorMessage = error.toUserMessage("Unable to load profile")
@@ -97,6 +104,7 @@ class AuthViewModel : ViewModel() {
     }
 
     fun saveProfile(context: Context, userId: String, displayName: String) {
+        if (isSaving || isLoading) return
         val normalizedName = displayName.trim()
         if (normalizedName.length !in MIN_DISPLAY_NAME_LENGTH..MAX_DISPLAY_NAME_LENGTH) {
             errorMessage = "Display name must contain 1–50 characters."
@@ -113,28 +121,32 @@ class AuthViewModel : ViewModel() {
             var avatarWasSaved = false
 
             try {
-                selectedImageUri?.let { avatarUri ->
-                    val avatarProfile = uploadAvatar(context, userId, avatarUri)
-                    applyProfile(avatarProfile)
-                    selectedImageUri = null
-                    avatarWasSaved = true
-                }
-
-                if (shouldUpdateName) {
-                    val response = ApiClient.authApi.updateProfile(
-                        userId = userId,
-                        request = UpdateProfileRequest(name = normalizedName),
-                    )
-                    if (!response.isSuccessful) {
-                        throw IOException("Unable to save profile (HTTP ${response.code()}).")
+                ServerEndpoint.withStableEndpoint {
+                    selectedImageUri?.let { avatarUri ->
+                        val avatarProfile = uploadAvatar(context, userId, avatarUri)
+                        applyProfile(avatarProfile)
+                        selectedImageUri = null
+                        avatarWasSaved = true
                     }
 
-                    val updatedProfile = response.body()
-                        ?: throw IOException("The updated profile response was empty.")
-                    applyProfile(updatedProfile)
+                    if (shouldUpdateName) {
+                        val response = ApiClient.authApi.updateProfile(
+                            userId = userId,
+                            request = UpdateProfileRequest(name = normalizedName),
+                        )
+                        if (!response.isSuccessful) {
+                            throw IOException("Unable to save profile (HTTP ${response.code()}).")
+                        }
+
+                        val updatedProfile = response.body()
+                            ?: throw IOException("The updated profile response was empty.")
+                        applyProfile(updatedProfile)
+                    }
+                    loadProfileSummary(userId)
+                    successMessage = "Profile saved successfully."
                 }
-                loadProfileSummary(userId)
-                successMessage = "Profile saved successfully."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 Log.e(TAG, "Unable to save profile", error)
                 errorMessage = if (avatarWasSaved) {
@@ -164,8 +176,7 @@ class AuthViewModel : ViewModel() {
         val file = FileUtils.uriToFile(context, uri)
             ?: throw IOException("Unable to read the selected image.")
         try {
-            val contentType = context.contentResolver.getType(uri)?.toMediaTypeOrNull()
-                ?: "image/jpeg".toMediaType()
+            val contentType = "image/jpeg".toMediaType()
             val imagePart = MultipartBody.Part.createFormData(
                 "file",
                 file.name,
@@ -212,7 +223,7 @@ class AuthViewModel : ViewModel() {
         } else {
             "uploads/$normalizedPath"
         }
-        return "${BuildConfig.API_BASE_URL.trimEnd('/')}/$relativePath"
+        return "${ApiClient.baseUrl.trimEnd('/')}/$relativePath"
     }
 
     private fun Throwable.toUserMessage(fallback: String): String {

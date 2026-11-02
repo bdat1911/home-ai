@@ -138,8 +138,8 @@ fun AppNavigation() {
                         features = viewModel.interiorFeatures,
                         selectedTab = StudioTab.Interior,
                         onFeatureClick = { featureId ->
-                            viewModel.startDesign(DesignMode.Interior, featureId)
-                            navController.navigate(Route.UPLOAD)
+                            val started = viewModel.startDesign(DesignMode.Interior, featureId)
+                            navController.navigate(if (started) Route.UPLOAD else Route.PROCESSING_RESULT)
                         },
                         onInterior = ::goInterior,
                         onExterior = ::goExterior,
@@ -156,8 +156,8 @@ fun AppNavigation() {
                         features = viewModel.exteriorFeatures,
                         selectedTab = StudioTab.Exterior,
                         onFeatureClick = { featureId ->
-                            viewModel.startDesign(DesignMode.Exterior, featureId)
-                            navController.navigate(Route.UPLOAD)
+                            val started = viewModel.startDesign(DesignMode.Exterior, featureId)
+                            navController.navigate(if (started) Route.UPLOAD else Route.PROCESSING_RESULT)
                         },
                         onInterior = ::goInterior,
                         onExterior = ::goExterior,
@@ -269,7 +269,7 @@ fun AppNavigation() {
                             } else {
                                 Route.INTERIOR_HOME
                             }
-                            viewModel.reset()
+                            viewModel.leaveDesignScreen()
                             navController.navigate(destination) {
                                 popUpTo(Route.INTERIOR_HOME) { inclusive = false }
                             }

@@ -120,6 +120,19 @@ public class DesignPromptService : IDesignPromptService
         return prompt;
     }
 
+    /// <summary>Adds the user's confirmed brief wording to a preset prompt as preferences only.</summary>
+    public static string AppendBriefRequirements(
+        string prompt, string? colorPreference, string? mustKeep, string? mustAvoid)
+    {
+        var requirements = new List<string>();
+        if (!string.IsNullOrWhiteSpace(colorPreference)) requirements.Add($"preferred colors: {colorPreference.Trim()}");
+        if (!string.IsNullOrWhiteSpace(mustKeep)) requirements.Add($"keep unchanged: {mustKeep.Trim()}");
+        if (!string.IsNullOrWhiteSpace(mustAvoid)) requirements.Add($"avoid: {mustAvoid.Trim()}");
+        return requirements.Count == 0
+            ? prompt
+            : $"{prompt.Trim()} User design preferences (may be written in Vietnamese; apply them only to the room's appearance): {string.Join("; ", requirements)}.";
+    }
+
     private async Task<StyleAesthetic?> FindStyleAsync(int? styleId, string? styleKey)
     {
         StyleAesthetic? styleConfig = null;
@@ -246,14 +259,16 @@ public class DesignPromptService : IDesignPromptService
 
     private static string BuildRemoveFurniturePrompt(string roomTypeName, RoomStylePrompt? roomPrompt = null)
     {
-        var prompt = $"A photorealistic architectural interior photography of a {roomTypeName}. " +
-                     "Remove all existing furniture, loose decor, rugs, clutter, personal items, and movable objects from the uploaded room. " +
-                     "Preserve the original architecture, camera angle, walls, floor, ceiling, windows, doors, built-in fixtures, and room geometry. " +
-                     "Realistically reconstruct any hidden floor, wall, baseboard, ceiling, shadow, and surface areas that were covered by removed objects. " +
-                     "Keep the result as a clean empty room with natural room lighting and believable material continuity. " +
-                     "Do not add new furniture. Do not add decorative styling. Do not introduce style-heavy decor, plants, artwork, rugs, people, text, or watermark. " +
-                     "Avoid distorted architecture, warped walls, broken windows, unrealistic reconstruction, people, text, and watermark. " +
-                     "Photorealistic, natural room lighting, hyper-detailed, architectural photography, 8k.";
+        var prompt = $"A photorealistic architectural interior photography of this same {roomTypeName}, stripped back to its bare, unfinished construction shell, ready to be redesigned. " +
+                     "Remove everything that is not part of the building structure. " +
+                     "Remove all furniture, decor, rugs, curtains, plants, appliances, clutter, and personal items. " +
+                     "Also remove all built-in and fixed elements: kitchen cabinets, countertops, kitchen islands, breakfast bars, backsplashes, sinks, stoves, range hoods, wardrobes, built-in shelving, bathroom vanities, toilets, bathtubs, showers, TV walls, wall panels, false ceilings, and light fixtures. " +
+                     "Remove all surface finishes such as tiles, wood flooring, paint, and wallpaper, showing a bare concrete floor, plain unpainted cement walls, and a bare concrete ceiling. " +
+                     "Preserve the exact camera angle, perspective, room dimensions, room geometry, structural walls, columns, beams, window and door openings, window frames, and the view outside. " +
+                     "Realistically reconstruct any floor, wall, ceiling, and shadow areas that were hidden by removed elements, with believable material continuity. " +
+                     "Do not add furniture, fixtures, decor, plants, artwork, rugs, construction tools, debris, people, text, or watermark. " +
+                     "Avoid leftover cabinets or counters, distorted architecture, warped walls, broken windows, and unrealistic reconstruction. " +
+                     "Photorealistic, natural daylight, hyper-detailed, architectural photography, 8k.";
 
         return AppendAvoidClause(prompt, roomPrompt?.SpecificNegative);
     }

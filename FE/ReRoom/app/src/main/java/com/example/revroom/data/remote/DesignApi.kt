@@ -43,23 +43,7 @@ interface DesignApi {
         @Header("user-id") userId: String,
         @Path("designId") designId: String
     ): retrofit2.Response<Unit>
-
-    @Multipart
-    @POST("api/design/chat")
-    suspend fun chat(
-        @Header("user-id") userId: String,
-        @Part("Prompt") message: String,
-        @Part image: MultipartBody.Part? = null,
-        @Part("model") model: RequestBody? = null,
-        @Part("resolution") resolution: RequestBody? = null
-    ): ChatResponse
 }
-
-data class ChatResponse(
-    val message: String? = null,
-    val designId: String? = null,
-    val imageUrl: String? = null
-)
 
 data class ProjectHistoryResponse(
     val data: List<com.example.revroom.features.history.model.ProjectModel>,

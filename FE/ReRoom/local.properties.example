@@ -1,4 +1,11 @@
 # Add this property to your ignored local.properties file.
-# For a real Android phone, use the private LAN IPv4 address of the PC running the API.
-# Do not use 127.0.0.1 or 0.0.0.0 here.
-homeAiApiUrl=http://YOUR_PC_LAN_IP:5207/
+# Android Emulator (Pixel_9 AVD): 10.0.2.2 is the PC as seen from the emulator.
+homeAiApiUrl=http://10.0.2.2:5207/
+# Physical phone via USB: use http://127.0.0.1:5207/ and run `adb reverse tcp:5207 tcp:5207`.
+# For LAN instead, use the PC's current LAN IP (it may change between networks).
+# The development chat API currently requires the emulator or USB reverse, not LAN.
+# Never use 0.0.0.0 as a client address.
+
+# Optional initial debug address; it can also be changed in My Profile > Server connection.
+# A release build requires a deployed HTTPS backend and this setting:
+# homeAiReleaseApiUrl=https://YOUR_DEPLOYED_API_DOMAIN/

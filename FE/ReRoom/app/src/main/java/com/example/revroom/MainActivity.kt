@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.ViewModelProvider
 import com.example.revroom.core.theme.RevroomTheme
 import com.example.revroom.data.local.UserManager
 import com.example.revroom.features.auth.viewmodel.AuthViewModel
@@ -15,7 +16,7 @@ class MainActivity : ComponentActivity() {
 
         // 1. Khởi tạo đồ nghề Backend
         val userManager = UserManager(this)
-        val authViewModel = AuthViewModel()
+        val authViewModel = ViewModelProvider(this)[AuthViewModel::class.java]
         val userId = userManager.getDeviceId()
 
         // 2. Logic kiểm tra nếu chưa đăng ký thành công trên server thì gửi lại

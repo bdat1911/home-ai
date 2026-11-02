@@ -7,7 +7,7 @@ using SixLabors.ImageSharp;
 
 namespace InteriorAI.Services
 {
-    public class DesignManager
+    public class DesignManager : IDesignJobCreator
     {
         private const long MaxImageBytes = 10 * 1024 * 1024;
 
@@ -81,51 +81,58 @@ namespace InteriorAI.Services
             return design;
         }
 
-        public async Task<DesignResult> CreateChatDesignAsync(
-            string userId,
-            IFormFile image,
-            string prompt,
-            string? model = null,
-            string? resolution = null)
+        public async Task<DesignResult> CreateFromBriefAsync(DesignJobRequest request)
         {
-            if (string.IsNullOrWhiteSpace(userId))
+            var existing = await FindBriefJobAsync(request.ConversationId, request.ClientRequestId);
+            if (existing != null)
             {
-                throw new ArgumentException("UserId is required.", nameof(userId));
+                return existing;
             }
 
-            if (string.IsNullOrWhiteSpace(prompt))
-            {
-                throw new ArgumentException("Prompt is required.", nameof(prompt));
-            }
-
-            if (!await _context.Users.AnyAsync(user => user.Id == userId))
-            {
-                throw new KeyNotFoundException("User does not exist.");
-            }
-
-            var imageBytes = await ReadAndValidateImageAsync(image);
+            var designPrompt = await _promptService.GetConfiguredPromptAsync(
+                request.StyleId, null, null, request.RoomType, request.FeatureId);
+            designPrompt = DesignPromptService.AppendBriefRequirements(
+                designPrompt, request.ColorPreference, request.MustKeep, request.MustAvoid);
+            var imageBytes = await ReadAndValidateImageAsync(request.Image);
             var base64Image = Convert.ToBase64String(imageBytes);
             var originalImageUrl = await _imageStorageService.UploadImageAsync(base64Image);
 
             var design = new DesignResult
             {
-                UserId = userId,
+                UserId = request.UserId,
                 OriginalImageUrl = originalImageUrl,
-                DesignPrompt = prompt,
-                Model = model,
-                Resolution = resolution,
+                DesignPrompt = designPrompt,
                 Status = DesignStatuses.Pending,
+                ConversationId = request.ConversationId,
+                BriefVersion = request.BriefVersion,
+                ClientRequestId = request.ClientRequestId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
             _context.DesignResults.Add(design);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // A concurrent retry of the same request won; return its job instead of starting another.
+                _context.Entry(design).State = EntityState.Detached;
+                return await FindBriefJobAsync(request.ConversationId, request.ClientRequestId) ?? throw new InvalidOperationException("Design job could not be saved.");
+            }
 
-            _logger.LogInformation("Chat design job {DesignId} was created for user {UserId}.", design.Id, userId);
+            _logger.LogInformation("Brief design job {DesignId} was created for conversation {ConversationId}.", design.Id, request.ConversationId);
             StartProcessingInBackground(design.Id);
 
             return design;
+        }
+
+        private Task<DesignResult?> FindBriefJobAsync(string conversationId, string clientRequestId)
+        {
+            return _context.DesignResults
+                .AsNoTracking()
+                .FirstOrDefaultAsync(item => item.ConversationId == conversationId && item.ClientRequestId == clientRequestId);
         }
 
         public Task<List<DesignStyleResponse>> GetDesignStylesAsync()
